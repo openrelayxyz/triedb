@@ -62,7 +62,10 @@ operation. Because individual nodes need not be stored in the index, the index
 can be kept smaller - possibly small enough to be kept in memory - allowing
 state trie lookups to be performed with only one disk seek per trie node. This
 means that a read that might take 448 seeks in LevelDB would take 65 seeks -
-approximately an 85% decrease in disk activity. 
+approximately an 85% decrease in disk activity. It's difficult to say for
+certain until we have an implementation to test, but this performance improvment
+may be sufficient to make storing Ethereum state trie storage on magnetic disks
+(instead of SSDs) feasible.
 
 State Trie Synchronization
 --------------------------
@@ -88,3 +91,51 @@ updated in place to point to the imported child node. Once all of a node's
 children have been resolved, it can be removed from the index, as the only time
 a direct node reference is required is updating the child references during the
 synchronization process.
+
+Limitations
+-----------
+
+This approach has some notable limitations.
+
+Pruning
+.......
+
+There's no obvious path to state trie pruning. With conventional solutions,
+nodes can be deleted and their space reclaimed. With this approach to state trie
+storage, reclaiming the space of deleted nodes would moving nodes, which would
+require updating all references to those nodes, which is difficult given the
+lack of a node index.
+
+However, state trie pruning is already a significant challenge, and Geth
+refrains from pruning nodes once written to disk. The general problem with state
+trie pruning is that while you might want to remove older state tries, those
+older state tries share nodes with newer state tries, and it would require
+massive overhead to track what nodes are associated with what state tries to
+know which ones can be deleted and which should not.
+
+Instead of trying to prune out state entries that are no longer needed, it will
+probably be more effective to copy across the tries we are interested in into a
+new database. The synchronization process would not copy across nodes not listed
+in tries we don't wish to retain, and any nodes shared between tries would
+synchronize quickly.
+
+Oustanding Decisions
+--------------------
+
+There are several considerations that will require further research to make a
+decision. These include:
+
+* What indexed storage system to use for storing references to the state trie
+  roots and the index of incomplete nodes during syncronization.
+* What serialization format to use to track nodes on disk.
+* Possible approaches to compressing the data, considering storage savings and
+  possible performance penalties
+
+Implementation
+--------------
+
+We plan to implement the proposed state trie storage implementation in Golang as
+a stand-alone library, with integrations into the go-ethereum project. As we
+finalize the details of state trie storage, that will be written into a clearly
+defined specification to allow for compatible implementations in other
+languages.
